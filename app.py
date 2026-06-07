@@ -636,7 +636,8 @@ elif nav_selection == "📋 Take Assessment":
             st.session_state.sleep_quality = sleep_quality
             st.session_state.caffeine = caffeine
             st.session_state.activity = activity
-                       st.success("Analysis complete! Go to the 'Analysis Dashboard' tab to view results.")
+            st.session_state.analysis_completed = True
+            st.success("Analysis complete! Go to the 'Analysis Dashboard' tab to view results.")
             st.info("Select 'Analysis Dashboard' in the sidebar menu to read your personalized report.")
 
 # 6. TAB 3: RESULTS & ANALYTICS DASHBOARD
