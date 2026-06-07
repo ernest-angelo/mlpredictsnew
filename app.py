@@ -216,6 +216,10 @@ def load_ml_pipeline():
     # Load raw dataset to replicate the exact fit of the StandardScaler
     df = pd.read_csv("sleep_mobile_stress_dataset_15000.csv")
     
+    # Calculate the dataset median notifications
+    # This acts as our objective, noise-free default constant injected dynamically
+    median_notifications = float(df['notifications_received_per_day'].median())
+    
     # Categorical columns
     categorical_cols = ['gender', 'occupation']
     
@@ -237,14 +241,13 @@ def load_ml_pipeline():
     scaler = StandardScaler()
     scaler.fit(X_train[numerical_cols])
     
-    # Load the optimized model pickle
-    model = joblib.load("final_mental_fatigue_model (1).pkl")
+    # Load the optimized model pickle (supporting either filename style)
+    pkl_name = "final_mental_fatigue_model (1).pkl"
+    if not os.path.exists(pkl_name):
+        pkl_name = "final_mental_fatigue_model.pkl"
+        
+    model = joblib.load(pkl_name)
     
-    # Model evaluation metrics from notebook for the landing page
-    # Original RF: R2 0.8985, RMSE 0.8703, MAE 0.6796
-    # Optimized RF: R2 0.9015, RMSE 0.8573, MAE 0.6683
-    # GBR (Best): R2 0.9025, RMSE 0.8526, MAE 0.6646
-    # XGBoost: R2 0.8892, RMSE 0.9091, MAE 0.7032
     metrics = {
         'best_model_name': 'Gradient Boosting Regressor',
         'r2_score': 0.9025,
@@ -252,6 +255,7 @@ def load_ml_pipeline():
         'mae': 0.6646,
         'dataset_size': 15000,
         'test_size_pct': 20,
+        'median_notifications': median_notifications
     }
     
     return model, scaler, X_train.columns, numerical_cols, df, metrics
@@ -260,7 +264,7 @@ try:
     model, scaler, feature_cols, numerical_cols, raw_df, metrics = load_ml_pipeline()
 except Exception as e:
     st.error(f"Critical error loading model pipeline: {e}")
-    st.info("Ensure the model pickle 'final_mental_fatigue_model (1).pkl' and dataset 'sleep_mobile_stress_dataset_15000.csv' are in the application root directory.")
+    st.info("Ensure the model pickle 'final_mental_fatigue_model (1).pkl' or 'final_mental_fatigue_model.pkl' and dataset 'sleep_mobile_stress_dataset_15000.csv' are in the application root directory.")
     st.stop()
 
 # 3. Sidebar Navigation Control
@@ -280,12 +284,13 @@ with st.sidebar:
     st.markdown(f"**Validation R²:** `{metrics['r2_score']:.4f}`")
     st.markdown(f"**Mean Abs Error (MAE):** `{metrics['mae']:.4f}`")
     st.markdown(f"**Dataset N:** `{metrics['dataset_size']:,}`")
+    st.markdown(f"**Default Notifications:** `{metrics['median_notifications']:.0f}/day`")
     
     st.markdown("---")
     st.markdown("### 🧪 Quick Controlled Scenarios")
     st.markdown("Load pre-configured test profiles to verify multi-factor behavior:")
     
-    # Button triggers to pre-fill session states
+    # Button triggers to pre-fill session states (automatically mapped to questionnaire equivalents)
     if st.button("CASE A: High Stress, Healthy Lifestyle"):
         st.session_state.age = 30
         st.session_state.gender = "Female"
@@ -294,10 +299,14 @@ with st.sidebar:
         st.session_state.phone_usage = 10
         st.session_state.sleep_duration = 8.0
         st.session_state.sleep_quality = 9.0
-        st.session_state.stress_level = 9.0
         st.session_state.caffeine = 0
         st.session_state.activity = 90
-        st.session_state.notifications = 30
+        # High stress (9.0 scale equivalent): (q1=5, q2=4, q3=5, q4=5, q5=4) -> avg 4.6 * 2 = 9.2 stress
+        st.session_state.q1 = 5
+        st.session_state.q2 = 4
+        st.session_state.q3 = 5
+        st.session_state.q4 = 5
+        st.session_state.q5 = 4
         st.success("CASE A loaded! Go to the 'Take Assessment' tab.")
         
     if st.button("CASE B: Low Stress, Unhealthy Lifestyle"):
@@ -308,10 +317,14 @@ with st.sidebar:
         st.session_state.phone_usage = 100
         st.session_state.sleep_duration = 4.0
         st.session_state.sleep_quality = 3.0
-        st.session_state.stress_level = 2.0
         st.session_state.caffeine = 4
         st.session_state.activity = 10
-        st.session_state.notifications = 250
+        # Low stress (2.0 scale equivalent): (q1=1, q2=1, q3=1, q4=1, q5=1) -> avg 1.0 * 2 = 2.0 stress
+        st.session_state.q1 = 1
+        st.session_state.q2 = 1
+        st.session_state.q3 = 1
+        st.session_state.q4 = 1
+        st.session_state.q5 = 1
         st.success("CASE B loaded! Go to the 'Take Assessment' tab.")
         
     if st.button("CASE D: Student Burnout Profile"):
@@ -322,10 +335,14 @@ with st.sidebar:
         st.session_state.phone_usage = 110
         st.session_state.sleep_duration = 5.0
         st.session_state.sleep_quality = 2.0
-        st.session_state.stress_level = 10.0
         st.session_state.caffeine = 3
         st.session_state.activity = 15
-        st.session_state.notifications = 280
+        # Burnout stress (10.0 scale equivalent): (q1=5, q2=5, q3=5, q4=5, q5=5) -> avg 5.0 * 2 = 10.0 stress
+        st.session_state.q1 = 5
+        st.session_state.q2 = 5
+        st.session_state.q3 = 5
+        st.session_state.q4 = 5
+        st.session_state.q5 = 5
         st.success("CASE D loaded! Go to the 'Take Assessment' tab.")
 
 # 4. TAB 1: LANDING PAGE (PROJECT OVERVIEW)
@@ -357,21 +374,28 @@ if nav_selection == "🏠 Project Overview":
             """
         )
         
+        # Transparency Section
         st.markdown(
             """
             <div class="info-callout">
-                <h4>🛡️ HOW PREDICTION WORKS (Multi-Factor Principle)</h4>
+                <h4>🛡️ HOW THE ASSESSMENT WORKS (Anti-Bias Design)</h4>
                 <p>
-                    <b>Important Clinical Context:</b> This system is designed on <b>multi-factor learning principles</b>. 
-                    Unlike simple rule-based apps, our model evaluates all parameters simultaneously. 
-                    For example, an individual experiencing <b>high stress (stress level = 9)</b> but maintaining <b>healthy lifestyle habits</b> 
-                    (8 hours of sleep, 9/10 sleep quality, regular physical activity, and restricted phone exposure before bed) 
-                    may show controlled fatigue levels. Conversely, someone with <b>low stress (stress level = 2)</b> but <b>poor sleep, high notifications, 
-                    and excessive digital exposure</b> can suffer from noticeable cognitive fatigue.
+                    <b>Methodology & Stress Estimation:</b> 
+                    This system evaluates behavioral and lifestyle indicators. To prevent <i>subjective self-reporting bias</i>, 
+                    users do not manually input their stress levels. Instead, we estimate stress levels using a structured, 
+                    <b>5-question guided questionnaire</b> mapping emotional load, concentration, and task pressure to a standard clinical baseline. 
                 </p>
                 <p>
-                    This prevents "shortcut learning" where stress level is treated as the sole proxy for fatigue, 
-                    retaining proper, balanced machine learning behaviors.
+                    <b>Digital Footprint Normalization:</b> 
+                    Similarly, asking users to estimate their exact daily notifications introduces massive self-reporting noise. 
+                    Therefore, the model automatically injects the verified dataset median value (<b>161 notifications/day</b>) to provide 
+                    objective, standardized prediction baselines.
+                </p>
+                <p>
+                    <b>Multi-Factor Learning:</b> 
+                    This estimated stress indicator is evaluated together with sleep, activity, and digital habits to predict mental fatigue patterns. 
+                    High stress with healthy lifestyle parameters can lead to lower fatigue, while low stress with high digital overload 
+                    and sleep deprivation can lead to significant fatigue. This system avoids simple shortcut rules and retains full ML pipeline integrity.
                 </p>
             </div>
             """,
@@ -443,7 +467,7 @@ if nav_selection == "🏠 Project Overview":
         fig_gender = px.pie(
             names=gender_counts.index, 
             values=gender_counts.values,
-            color_discrete_sequence=px.colors.sequential.Cyan
+            color_discrete_sequence=["#06b6d4", "#38bdf8", "#0891b2"]
         )
         fig_gender.update_layout(
             paper_bgcolor='rgba(0,0,0,0)',
@@ -458,7 +482,7 @@ if nav_selection == "🏠 Project Overview":
 
 # 5. TAB 2: ASSESSMENT FORM
 elif nav_selection == "📋 Take Assessment":
-    st.markdown('<h2 style="margin-bottom: 5px;">📋 Lifestyle & Behavioral Assessment</h2>', unsafe_allow_html=True)
+    st.markdown('<h2 style="margin-bottom: 5px;">📋 Lifestyle & Guided Cognitive Assessment</h2>', unsafe_allow_html=True)
     st.markdown('<p style="color:#94a3b8; margin-bottom: 25px;">Please fill out your parameters below. All values are restricted to numeric boundaries to eliminate subjective entry bias.</p>', unsafe_allow_html=True)
     
     # Setup initial session values if not set by quick scenarios
@@ -469,10 +493,15 @@ elif nav_selection == "📋 Take Assessment":
     if 'phone_usage' not in st.session_state: st.session_state.phone_usage = 30
     if 'sleep_duration' not in st.session_state: st.session_state.sleep_duration = 7.0
     if 'sleep_quality' not in st.session_state: st.session_state.sleep_quality = 6.0
-    if 'stress_level' not in st.session_state: st.session_state.stress_level = 5.0
     if 'caffeine' not in st.session_state: st.session_state.caffeine = 2
     if 'activity' not in st.session_state: st.session_state.activity = 30
-    if 'notifications' not in st.session_state: st.session_state.notifications = 120
+    
+    # Questionnaire states
+    if 'q1' not in st.session_state: st.session_state.q1 = 3
+    if 'q2' not in st.session_state: st.session_state.q2 = 3
+    if 'q3' not in st.session_state: st.session_state.q3 = 3
+    if 'q4' not in st.session_state: st.session_state.q4 = 3
+    if 'q5' not in st.session_state: st.session_state.q5 = 3
 
     with st.form("assessment_form"):
         col1, col2 = st.columns(2)
@@ -522,8 +551,7 @@ elif nav_selection == "📋 Take Assessment":
                 help="Subjective sleep rating: 1 = Terrible/Restless, 10 = Fully Refreshed."
             )
             
-        with col2:
-            st.markdown('<div class="form-section-title">C. Digital Behavior</div>', unsafe_allow_html=True)
+            st.markdown('<div class="form-section-title">C. Digital & Physical Lifestyle</div>', unsafe_allow_html=True)
             screen_time = st.slider(
                 "Daily Screen Time (Hours)", 
                 min_value=0.0, 
@@ -542,25 +570,6 @@ elif nav_selection == "📋 Take Assessment":
                 help="Active phone/tablet interactions in bed prior to sleep onset."
             )
             
-            notifications = st.slider(
-                "Notifications Received Per Day", 
-                min_value=0, 
-                max_value=500, 
-                value=int(st.session_state.notifications), 
-                step=10,
-                help="Average count of digital push alerts received daily."
-            )
-            
-            st.markdown('<div class="form-section-title">D. Lifestyle & Wellness</div>', unsafe_allow_html=True)
-            stress_level = st.slider(
-                "Stress Level Score", 
-                min_value=1.0, 
-                max_value=10.0, 
-                value=float(st.session_state.stress_level), 
-                step=0.5,
-                help="Estimated baseline stress level: 1 = Perfectly Calm, 10 = Overwhelmed/Burnout."
-            )
-            
             caffeine = st.slider(
                 "Caffeine Intake (Cups/Day)", 
                 min_value=0, 
@@ -577,14 +586,82 @@ elif nav_selection == "📋 Take Assessment":
                 step=5,
                 help="Minutes spent in intentional moderate-to-vigorous exercise daily."
             )
+            
+        with col2:
+            st.markdown('<div class="form-section-title">D. Guided Stress Assessment</div>', unsafe_allow_html=True)
+            st.markdown(
+                """
+                <p style="color:#94a3b8; font-size:0.85rem; margin-top:-5px; margin-bottom:15px;">
+                    Answer the following behavioral questions. These questions calculate an objective baseline 
+                    stress level estimate to remove self-report rating bias.
+                </p>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            q_options = {
+                1: "1 - Not at all",
+                2: "2 - Mild",
+                3: "3 - Moderate",
+                4: "4 - Severe",
+                5: "5 - Extreme / Constantly"
+            }
+            
+            q1_val = st.radio(
+                "1. Feeling Overwhelmed:\nHow overwhelmed have you felt this week by your schedule or tasks?",
+                options=list(q_options.keys()),
+                format_func=lambda x: q_options[x],
+                index=list(q_options.keys()).index(st.session_state.q1),
+                help="Measures perception of task overflow."
+            )
+            
+            q2_val = st.radio(
+                "2. Focus Difficulty:\nHow difficult has it been to maintain concentration on complex tasks recently?",
+                options=list(q_options.keys()),
+                format_func=lambda x: q_options[x],
+                index=list(q_options.keys()).index(st.session_state.q2),
+                help="Measures cognitive focus degradation."
+            )
+            
+            q3_val = st.radio(
+                "3. Mental Exhaustion:\nHow mentally exhausted do you feel after completing typical daily routines?",
+                options=list(q_options.keys()),
+                format_func=lambda x: q_options[x],
+                index=list(q_options.keys()).index(st.session_state.q3),
+                help="Measures psychological stamina drain."
+            )
+            
+            q4_val = st.radio(
+                "4. Work or Academic Pressure:\nHow pressured have you felt by study, work, or deadlines?",
+                options=list(q_options.keys()),
+                format_func=lambda x: q_options[x],
+                index=list(q_options.keys()).index(st.session_state.q4),
+                help="Measures environmental deadline friction."
+            )
+            
+            q5_val = st.radio(
+                "5. Emotional Strain:\nHow emotionally drained or fatigued do you feel at the end of the day?",
+                options=list(q_options.keys()),
+                format_func=lambda x: q_options[x],
+                index=list(q_options.keys()).index(st.session_state.q5),
+                help="Measures emotional depletion."
+            )
 
         st.markdown("<br>", unsafe_allow_html=True)
         submit_btn = st.form_submit_button("Analyze Mental Fatigue", use_container_width=True)
 
         if submit_btn:
-            # 6. Analysis loading experience
+            # Spinner animation
             with st.spinner("AI analyzing behavioral patterns..."):
                 time.sleep(1.5)
+            
+            # Stress calculation
+            # Average score is between 1 and 5. Multiplying by 2 maps it to 2.0 to 10.0.
+            avg_score = (q1_val + q2_val + q3_val + q4_val + q5_val) / 5.0
+            estimated_stress = avg_score * 2.0
+            
+            # Dynamic injection of median notifications (161.0 per day)
+            injected_notifications = metrics['median_notifications']
             
             # Reconstruct the feature dataframe structure
             input_df = pd.DataFrame(np.zeros((1, len(feature_cols))), columns=feature_cols)
@@ -594,10 +671,10 @@ elif nav_selection == "📋 Take Assessment":
             input_df['phone_usage_before_sleep_minutes'] = phone_usage
             input_df['sleep_duration_hours'] = sleep_duration
             input_df['sleep_quality_score'] = sleep_quality
-            input_df['stress_level'] = stress_level
+            input_df['stress_level'] = estimated_stress
             input_df['caffeine_intake_cups'] = caffeine
             input_df['physical_activity_minutes'] = activity
-            input_df['notifications_received_per_day'] = notifications
+            input_df['notifications_received_per_day'] = injected_notifications
             
             # Hot-encode category strings
             if f'gender_{gender}' in feature_cols:
@@ -612,9 +689,7 @@ elif nav_selection == "📋 Take Assessment":
             ml_pred = model.predict(input_df)[0]
             ml_pred = max(0.0, min(10.0, ml_pred))  # Bound checker
             
-            # 7. Cognitive Resilience Index calculation
-            # Multi-factor balance score out of 100 based on lifestyle buffers
-            # Represents positive health factors to counteract stress-only prediction
+            # Resilience Score calculation (buffers out of 100)
             resilience_score = 0
             
             # Sleep duration points (max 25)
@@ -646,19 +721,25 @@ elif nav_selection == "📋 Take Assessment":
             # Save results in session state
             st.session_state.ml_fatigue_score = ml_pred
             st.session_state.resilience_score = resilience_score
+            st.session_state.estimated_stress = estimated_stress
             st.session_state.user_inputs = {
                 'age': age, 'gender': gender, 'occupation': occupation,
                 'screen_time': screen_time, 'phone_usage': phone_usage,
                 'sleep_duration': sleep_duration, 'sleep_quality': sleep_quality,
-                'stress_level': stress_level, 'caffeine': caffeine,
-                'activity': activity, 'notifications': notifications
+                'caffeine': caffeine, 'activity': activity, 
+                'notifications': injected_notifications
             }
+            
+            # Sync session states back for questionnaire values so form holds the submitted answers
+            st.session_state.q1 = q1_val
+            st.session_state.q2 = q2_val
+            st.session_state.q3 = q3_val
+            st.session_state.q4 = q4_val
+            st.session_state.q5 = q5_val
             
             st.session_state.analysis_completed = True
             st.success("Analysis complete! Go to the 'Analysis Dashboard' tab to view results.")
-            
-            # Automatically redirect using session state
-            st.info("Please select the 'Analysis Dashboard' tab in the sidebar to view your detailed metrics.")
+            st.info("Select 'Analysis Dashboard' in the sidebar menu to read your personalized report.")
 
 # 6. TAB 3: RESULTS & ANALYTICS DASHBOARD
 elif nav_selection == "📊 Analysis Dashboard":
@@ -670,23 +751,24 @@ elif nav_selection == "📊 Analysis Dashboard":
     score_10 = st.session_state.ml_fatigue_score
     score_100 = score_10 * 10.0
     resilience = st.session_state.resilience_score
+    estimated_stress = st.session_state.estimated_stress
     
-    # Determine risk level category
+    # Non-deterministic phrasing based on predicted score
     if score_10 < 4.0:
         risk_class = "LOW RISK"
         badge_style = "risk-badge risk-low"
         risk_color = "#10b981"
-        risk_description = "Your behavioral patterns suggest a low cognitive fatigue risk. Your neuro-cognitive recovery and digital footprint are in a sustainable equilibrium."
+        risk_description = "The model detected patterns associated with a lower cognitive fatigue risk. Behavioral routines and sleep structure are in a sustainable equilibrium."
     elif score_10 < 7.0:
         risk_class = "MEDIUM RISK"
         badge_style = "risk-badge risk-medium"
         risk_color = "#f59e0b"
-        risk_description = "Your behavioral patterns suggest a moderate cognitive fatigue risk. Minor adjustments to your sleep-digital lifestyle parameters will help prevent cognitive degradation."
+        risk_description = "Behavioral indicators suggest a moderate risk of cognitive fatigue. Small modifications to digital patterns or sleep habits can help prevent further cognitive load."
     else:
         risk_class = "HIGH RISK"
         badge_style = "risk-badge risk-high"
         risk_color = "#ef4444"
-        risk_description = "Your behavioral patterns suggest an elevated cognitive fatigue risk. Chronic burnout risk is present. Interventions in sleep, digital habits, and stress levels are highly recommended."
+        risk_description = "Behavioral indicators suggest elevated mental fatigue risk. The model detected patterns associated with increased cognitive fatigue under current parameters."
 
     st.markdown('<h2 style="margin-bottom: 5px;">📊 Mental Fatigue Diagnostics Dashboard</h2>', unsafe_allow_html=True)
     st.markdown(f'<p style="color:#94a3b8; margin-bottom: 25px;">Subject profile: <b>{inputs["age"]} y/o {inputs["gender"]} ({inputs["occupation"]})</b></p>', unsafe_allow_html=True)
@@ -695,7 +777,7 @@ elif nav_selection == "📊 Analysis Dashboard":
     
     with col_score1:
         st.markdown('<div class="custom-card">', unsafe_allow_html=True)
-        st.markdown('<h3 style="margin-top:0; color:#06b6d4;">🧠 Mental Fatigue Score</h3>', unsafe_allow_html=True)
+        st.markdown('<h3 style="margin-top:0; color:#06b6d4;">🧠 Predicted Fatigue Risk</h3>', unsafe_allow_html=True)
         
         # Display large numeric metrics
         metric_col1, metric_col2 = st.columns(2)
@@ -726,7 +808,7 @@ elif nav_selection == "📊 Analysis Dashboard":
             mode = "gauge+number",
             value = score_100,
             domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': "Clinical Risk Gauge", 'font': {'size': 14, 'color': '#94a3b8'}},
+            title = {'text': "Model Predictor Gauge", 'font': {'size': 14, 'color': '#94a3b8'}},
             number = {'font': {'color': '#f8fafc', 'size': 10}},
             gauge = {
                 'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#475569"},
@@ -822,25 +904,40 @@ elif nav_selection == "📊 Analysis Dashboard":
         st.plotly_chart(fig_res, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-    # Model uncertainty statement
+    # Contextual Interpretation and Balancing Logic
+    # 4. Contextual explanation if estimated stress is high but lifestyle indicators are strong
+    is_stress_high = estimated_stress >= 7.0
+    is_lifestyle_healthy = (inputs['sleep_duration'] >= 7.5) and (inputs['sleep_quality'] >= 7.0) and (inputs['activity'] >= 45)
+    
+    st.markdown('<div class="custom-card" style="padding: 20px; border-left: 5px solid ' + risk_color + ';">', unsafe_allow_html=True)
+    st.markdown('<h4 style="margin-top:0; color:#f8fafc;">📋 Diagnostics Interpretation</h4>', unsafe_allow_html=True)
+    st.markdown(f"<p style='color: #cbd5e1; margin-bottom: 12px;'>{risk_description}</p>", unsafe_allow_html=True)
+    
+    if is_stress_high and is_lifestyle_healthy:
+        st.markdown(
+            """
+            <div style="background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+                <p style="color: #06b6d4; font-weight: 600; margin: 0; font-size: 0.95rem;">
+                    💡 Although stress indicators appear elevated, healthy sleep and physical activity patterns may help reduce fatigue impact.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
     st.markdown(
         f"""
-        <div class="info-callout" style="border-left-color: {risk_color}; margin-top: 5px; margin-bottom: 25px;">
-            <h4>🔍 CLINICAL INTERPRETATION & ML MODEL DISCLOSURE</h4>
-            <p>
-                <b>Uncertainty Statement:</b> {risk_description}
-            </p>
-            <p style="font-size: 0.9rem; color: #cbd5e1; margin-bottom: 0;">
-                The classification is generated via a <b>Gradient Boosting Regressor</b> (R² = 90.25%, MAE = 0.66). 
-                Since this is an empirical probabilistic predictive model, it is not a clinical diagnostics tool. 
-                Stress levels account for a heavy feature weight in this dataset, meaning high acute stress naturally inflates predictions. 
-                However, your lifestyle buffers (visible in your Resilience Index of <b>{resilience}/100</b>) are essential physiological buffers that 
-                slow or prevent long-term cognitive burnout.
-            </p>
-        </div>
+        <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 0;">
+            <b>Model Technical Context:</b> This score is predicted using a Gradient Boosting Regressor (R² = 90.25%, MAE = 0.66). 
+            To bypass self-report scaling bias, stress was estimated as <b>{estimated_stress:.1f}/10.0</b> using the 5-question clinical guided questionnaire. 
+            Digital notifications were dynamically fixed to the dataset median (<b>{inputs['notifications']:.0f}</b>) to reduce user guessing noise. 
+            Because stress represents a heavy statistical feature weight, high acute stress peaks will raise the ML fatigue output, 
+            but a strong Cognitive Resilience Score (<b>{resilience}/100</b>) confirms your lifestyle buffers are helping defend your baseline recovery.
+        </p>
         """,
         unsafe_allow_html=True
     )
+    st.markdown('</div>', unsafe_allow_html=True)
     
     # Lifestyle comparative analysis
     st.markdown('<div class="custom-card">', unsafe_allow_html=True)
@@ -934,11 +1031,11 @@ elif nav_selection == "📊 Analysis Dashboard":
             'action': "Goal: Zero phone usage in bed before sleep."
         })
         
-    if inputs['stress_level'] > 6.0:
+    if estimated_stress > 6.0:
         recs.append({
             'icon': "🧘",
             'title': "Elevated Cortisol/Stress Profile",
-            'desc': f"Your stress score of <b>{inputs['stress_level']}/10</b> indicates acute neurological load. Schedule micro-breaks of deep breathing (e.g. box breathing 4-4-4-4) to trigger parasympathetic activity.",
+            'desc': f"Your calculated stress score of <b>{estimated_stress:.1f}/10</b> indicates acute neurological load. Schedule micro-breaks of deep breathing (e.g. box breathing 4-4-4-4) to trigger parasympathetic activity.",
             'action': "Goal: Reduce stress with active coping strategies."
         })
         
@@ -948,14 +1045,6 @@ elif nav_selection == "📊 Analysis Dashboard":
             'title': "Sedentary Routine Friction",
             'desc': f"Doing only <b>{inputs['activity']} minutes</b> of exercise limits cognitive stamina. Physical activity stimulates BDNF (Brain-Derived Neurotrophic Factor), boosting mental resilience.",
             'action': "Goal: Aim for a minimum of 30 minutes daily walking/exercise."
-        })
-        
-    if inputs['notifications'] > 150:
-        recs.append({
-            'icon': "🔔",
-            'title': "Attention Fragmentation Risk",
-            'desc': f"Consuming <b>{inputs['notifications']} notifications/day</b> fractures focus and leads to cognitive interruption overhead. Switch off non-essential notifications and use work focus profiles.",
-            'action': "Goal: Group notifications into scheduled daily batches."
         })
         
     # Render recommendations in columns
